@@ -13,6 +13,24 @@ class MasterViewController: UITableViewController, NSFetchedResultsControllerDel
 
     var detailViewController: DetailViewController? = nil
     var managedObjectContext: NSManagedObjectContext? = nil
+    
+    struct News: Decodable {
+        enum CodingKeys: String, CodingKey {
+            case item = "items"
+        }
+        let item: [Post]
+    }
+    
+    struct Post: Decodable {
+        enum CodingKeys: String, CodingKey {
+            case published  = "published"
+            case title = "title"
+            case content = "content"
+        }
+        let published: String
+        let title: String
+        let content: String
+    }
 
 
     override func viewDidLoad() {
@@ -20,7 +38,7 @@ class MasterViewController: UITableViewController, NSFetchedResultsControllerDel
         // Do any additional setup after loading the view, typically from a nib.
         
         let url = URL(string: "https://www.googleapis.com/blogger/v3/blogs/25147483/posts?key=%20AIzaSyCo2w6LblGF3sd7taeDKG1Oa37yqDJUDbc")!
-        
+
         let task = URLSession.shared.dataTask(with: url) { (data, response, error) in
             
             if error != nil {
@@ -29,13 +47,77 @@ class MasterViewController: UITableViewController, NSFetchedResultsControllerDel
                 
             } else {
                 
-                if let urlContent = data {
+                guard let data = data else { return }
+                
+                do {
                     
-                    print(urlContent)
+                    let blog = try JSONDecoder().decode(News.self, from: data)
+                    let context = self.fetchedResultsController.managedObjectContext
+                    let request = NSFetchRequest<Event>(entityName: "Event")
+                    
+                    do {
+                        
+                        let results = try context.fetch(request)
+                        if results.count > 0 {
+                            
+                            for result in results {
+                                context.delete(result)
+                                
+                                do {
+                                    
+                                    try context.save()
+                                    
+                                } catch {
+                                    
+                                    print("Specific delete failed")
+                                    
+                                }
+                            }
+                        }
+                        
+                    } catch {
+                        
+                        print("Delete failed")
+                        
+                    }
+                    
+                    for i in blog.item {
+                        
+                        let newEvent = Event(context: context)
+                        
+                        // If appropriate, configure the new managed object.
+                        newEvent.timestamp = Date()
+                        newEvent.setValue(i.content, forKey: "content")
+                        newEvent.setValue(i.title, forKey: "title")
+                        newEvent.setValue(i.published, forKey: "published")
+                        
+                        // Save the context.
+                        do {
+                            try context.save()
+                        } catch {
+                            // Replace this implementation with code to handle the error appropriately.
+                            // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
+                            let nserror = error as NSError
+                            fatalError("Unresolved error \(nserror), \(nserror.userInfo)")
+                        }
+                        
+                        
+                    }
+                    
+                    DispatchQueue.main.async(execute: {() -> Void in
+                        
+                        self.tableView?.reloadData();
+                        
+                    })
+                    
+                } catch {
+                    
+                    print("Error parsing JSON")
                     
                 }
                 
             }
+            
             
         }
         
@@ -106,7 +188,7 @@ class MasterViewController: UITableViewController, NSFetchedResultsControllerDel
 
 
     func configureCell(_ cell: UITableViewCell, withEvent event: Event) {
-        cell.textLabel!.text = event.timestamp!.description
+        cell.textLabel!.text = event.value(forKey: "title") as! String
     }
 
     // MARK: - Fetched results controller
@@ -122,7 +204,7 @@ class MasterViewController: UITableViewController, NSFetchedResultsControllerDel
         fetchRequest.fetchBatchSize = 20
         
         // Edit the sort key as appropriate.
-        let sortDescriptor = NSSortDescriptor(key: "timestamp", ascending: false)
+        let sortDescriptor = NSSortDescriptor(key: "published", ascending: false)
         
         fetchRequest.sortDescriptors = [sortDescriptor]
         
